@@ -4,6 +4,22 @@ import { RoomChange } from "../models/RoomChange.js";
 
 const router = express.Router();
 
+// GET all hostel applications
+router.get("/", async (req, res) => {
+  try {
+    const { regNo, status } = req.query;
+    const query = {};
+    if (regNo) query.regNo = regNo;
+    if (status && status !== "All") query.status = status;
+
+    const apps = await Application.find(query).sort({ appliedDate: -1 });
+    res.json(apps);
+  } catch (error) {
+    console.error("Fetch Applications Error:", error);
+    res.status(500).json({ error: "Failed to fetch applications." });
+  }
+});
+
 // POST new hostel allocation application
 router.post("/apply", async (req, res) => {
   try {
@@ -35,6 +51,39 @@ router.post("/apply", async (req, res) => {
   }
 });
 
+// PATCH application status
+router.patch("/:id", async (req, res) => {
+  try {
+    const { status } = req.body;
+    const app = await Application.findOne({ id: req.params.id });
+    if (!app) {
+      return res.status(404).json({ error: "Application not found." });
+    }
+    if (status) app.status = status;
+    await app.save();
+    res.json(app);
+  } catch (error) {
+    console.error("Update Application Status Error:", error);
+    res.status(500).json({ error: "Failed to update application status." });
+  }
+});
+
+// GET all room change requests
+router.get("/room-change", async (req, res) => {
+  try {
+    const { regNo, status } = req.query;
+    const query = {};
+    if (regNo) query.regNo = regNo;
+    if (status && status !== "All") query.status = status;
+
+    const requests = await RoomChange.find(query).sort({ appliedDate: -1 });
+    res.json(requests);
+  } catch (error) {
+    console.error("Fetch Room Changes Error:", error);
+    res.status(500).json({ error: "Failed to fetch room change requests." });
+  }
+});
+
 // POST room change request
 router.post("/room-change", async (req, res) => {
   try {
@@ -62,6 +111,23 @@ router.post("/room-change", async (req, res) => {
   } catch (error) {
     console.error("Room Change Error:", error);
     res.status(500).json({ error: "Failed to submit room change request." });
+  }
+});
+
+// PATCH room change status
+router.patch("/room-change/:id", async (req, res) => {
+  try {
+    const { status } = req.body;
+    const rc = await RoomChange.findOne({ id: req.params.id });
+    if (!rc) {
+      return res.status(404).json({ error: "Room change request not found." });
+    }
+    if (status) rc.status = status;
+    await rc.save();
+    res.json(rc);
+  } catch (error) {
+    console.error("Update Room Change Status Error:", error);
+    res.status(500).json({ error: "Failed to update room change status." });
   }
 });
 

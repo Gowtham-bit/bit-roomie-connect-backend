@@ -9,7 +9,9 @@ router.get("/", async (req, res) => {
   try {
     const { regNo, status } = req.query;
     const query = {};
-    if (regNo) query.regNo = regNo;
+    if (regNo && regNo !== "undefined") {
+      query.regNo = { $regex: new RegExp(`^${regNo.trim()}$`, "i") };
+    }
     if (status && status !== "All") query.status = status;
 
     const apps = await Application.find(query).sort({ appliedDate: -1 });
@@ -39,7 +41,7 @@ router.post("/apply", async (req, res) => {
       roomType: roomType || "Non-AC",
       sharing: Number(sharing) || 2,
       notes: notes || "",
-      status: "Pending",
+      status: "Pending Warden Review",
       appliedDate: new Date().toISOString().slice(0, 10),
     });
 
@@ -51,16 +53,40 @@ router.post("/apply", async (req, res) => {
   }
 });
 
-// PATCH application status
+// PATCH application status & manual room allotment
 router.patch("/:id", async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, allottedRoom } = req.body;
     const app = await Application.findOne({ id: req.params.id });
     if (!app) {
       return res.status(404).json({ error: "Application not found." });
     }
     if (status) app.status = status;
+    if (allottedRoom) app.allottedRoom = allottedRoom;
     await app.save();
+
+    if (status === "Approved" || status === "Room Allotted") {
+      const roomNo = allottedRoom || app.allottedRoom || "101";
+      const { Student } = await import("../models/Student.js");
+      const { Room } = await import("../models/Room.js");
+      const { Hostel } = await import("../models/Hostel.js");
+
+      await Student.updateOne(
+        { regNo: app.regNo },
+        { $set: { hostel: app.hostelName, room: roomNo } }
+      );
+
+      // Increment room occupancy if room exists
+      await Room.updateOne(
+        { hostelName: app.hostelName, number: roomNo },
+        { $inc: { occupied: 1 } }
+      );
+      await Hostel.updateOne(
+        { name: app.hostelName },
+        { $inc: { occupied: 1 } }
+      );
+    }
+
     res.json(app);
   } catch (error) {
     console.error("Update Application Status Error:", error);
@@ -73,7 +99,9 @@ router.get("/room-change", async (req, res) => {
   try {
     const { regNo, status } = req.query;
     const query = {};
-    if (regNo) query.regNo = regNo;
+    if (regNo && regNo !== "undefined") {
+      query.regNo = { $regex: new RegExp(`^${regNo.trim()}$`, "i") };
+    }
     if (status && status !== "All") query.status = status;
 
     const requests = await RoomChange.find(query).sort({ appliedDate: -1 });
@@ -102,7 +130,7 @@ router.post("/room-change", async (req, res) => {
       currentRoom: currentRoom || "312",
       targetHostel: targetHostel || "Emerald Block",
       reason,
-      status: "Pending",
+      status: "Pending Warden Review",
       appliedDate: new Date().toISOString().slice(0, 10),
     });
 
@@ -114,16 +142,39 @@ router.post("/room-change", async (req, res) => {
   }
 });
 
-// PATCH room change status
+// PATCH room change status & manual room allotment
 router.patch("/room-change/:id", async (req, res) => {
   try {
-    const { status } = req.body;
+    const { status, allottedRoom } = req.body;
     const rc = await RoomChange.findOne({ id: req.params.id });
     if (!rc) {
       return res.status(404).json({ error: "Room change request not found." });
     }
     if (status) rc.status = status;
+    if (allottedRoom) rc.allottedRoom = allottedRoom;
     await rc.save();
+
+    if (status === "Approved" || status === "Room Allotted") {
+      const roomNo = allottedRoom || rc.allottedRoom || "204";
+      const { Student } = await import("../models/Student.js");
+      const { Room } = await import("../models/Room.js");
+      const { Hostel } = await import("../models/Hostel.js");
+
+      await Student.updateOne(
+        { regNo: rc.regNo },
+        { $set: { hostel: rc.targetHostel, room: roomNo } }
+      );
+
+      await Room.updateOne(
+        { hostelName: rc.targetHostel, number: roomNo },
+        { $inc: { occupied: 1 } }
+      );
+      await Hostel.updateOne(
+        { name: rc.targetHostel },
+        { $inc: { occupied: 1 } }
+      );
+    }
+
     res.json(rc);
   } catch (error) {
     console.error("Update Room Change Status Error:", error);

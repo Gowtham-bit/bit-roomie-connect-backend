@@ -10,7 +10,8 @@ const applicationSchema = new mongoose.Schema(
     roomType: { type: String, enum: ["AC", "Non-AC"], required: true },
     sharing: { type: Number, required: true },
     notes: { type: String },
-    status: { type: String, enum: ["Pending", "Approved", "Rejected"], default: "Pending" },
+    status: { type: String, default: "Pending Warden Review" },
+    allottedRoom: { type: String, default: "" },
     appliedDate: { type: String, required: true },
   },
   { timestamps: true }

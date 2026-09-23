@@ -9,7 +9,8 @@ const roomChangeSchema = new mongoose.Schema(
     currentRoom: { type: String, required: true },
     targetHostel: { type: String, required: true },
     reason: { type: String, required: true },
-    status: { type: String, enum: ["Pending", "Approved", "Rejected"], default: "Pending" },
+    status: { type: String, default: "Pending Warden Review" },
+    allottedRoom: { type: String, default: "" },
     appliedDate: { type: String, required: true },
   },
   { timestamps: true }

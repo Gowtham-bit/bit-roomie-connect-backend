@@ -9,7 +9,7 @@ const router = express.Router();
 // Register new student account
 router.post("/register", async (req, res) => {
   try {
-    const { regNo, name, email, password, department, year, gender, mobile } = req.body;
+    const { regNo, name, email, password, department, year, gender, mobile, hometown, language, interests, traits } = req.body;
 
     const existingStudent = await Student.findOne({ $or: [{ regNo }, { email }] });
     if (existingStudent) {
@@ -37,6 +37,18 @@ router.post("/register", async (req, res) => {
     const cleanDepartment = department === "CSAE" || department === "CSaE" ? "Computer Science and Engineering" : department;
     const computedDept = DEPT_SHORT_MAP[cleanDepartment] || DEPT_SHORT_MAP[department] || "CSE";
 
+    const defaultTraits = {
+      sleep: traits?.sleep || "10 PM – 12 AM",
+      wake: traits?.wake || "6–8 AM",
+      cleanliness: traits?.cleanliness || "Very Clean",
+      food: traits?.food || "Non-Veg",
+      personality: traits?.personality || "Ambivert",
+      noise: traits?.noise || "Moderate",
+      study: traits?.study || "Night",
+      visitors: traits?.visitors || "Occasionally",
+      qualities: traits?.qualities || ["Clean", "Friendly", "Quiet"],
+    };
+
     const newStudent = new Student({
       id: `S${String(count + 1).padStart(3, "0")}`,
       regNo,
@@ -48,11 +60,16 @@ router.post("/register", async (req, res) => {
       year: Number(year) || 1,
       gender: gender || "Male",
       mobile: mobile || "9876543210",
+      hometown: hometown || "Coimbatore",
+      language: language || "Tamil",
+      interests: Array.isArray(interests) ? interests : (interests ? interests.split(",").map(s => s.trim()) : ["Coding", "Cricket", "Gaming"]),
+      traits: defaultTraits,
       avatar: `https://i.pravatar.cc/160?img=${(count % 70) + 1}`,
       role: "student",
     });
 
     await newStudent.save();
+
 
     const token = jwt.sign(
       { id: newStudent.id, regNo: newStudent.regNo, role: newStudent.role },
@@ -193,12 +210,45 @@ router.patch("/profile", verifyToken, async (req, res) => {
       return res.status(404).json({ error: "Student profile not found." });
     }
 
-    const { mobile, hometown, language, interests, traits } = req.body;
-    if (mobile) student.mobile = mobile;
-    if (hometown) student.hometown = hometown;
-    if (language) student.language = language;
-    if (interests) student.interests = interests;
-    if (traits) student.traits = { ...student.traits, ...traits };
+    const fields = [
+      "name",
+      "email",
+      "mobile",
+      "gender",
+      "hometown",
+      "language",
+      "interests",
+      "department",
+      "dept",
+      "year",
+      "cgpa",
+      "hostel",
+      "room",
+      "messPlan",
+      "feeStatus",
+      "avatar",
+      "empId",
+      "designation",
+      "officePhone",
+      "emergencyContact",
+      "officeLocation",
+      "dateOfJoining",
+      "responsibilities",
+    ];
+
+    fields.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        student[field] = req.body[field];
+      }
+    });
+
+    if (req.body.traits && typeof req.body.traits === "object") {
+      student.traits = { ...student.traits, ...req.body.traits };
+    }
+
+    if (req.body.guardian && typeof req.body.guardian === "object") {
+      student.guardian = { ...student.guardian, ...req.body.guardian };
+    }
 
     await student.save();
     const updated = student.toObject();

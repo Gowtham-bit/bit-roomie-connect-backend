@@ -5,18 +5,25 @@ import { RoommateRequest } from "../models/RoommateRequest.js";
 const router = express.Router();
 
 function calculateCompatibility(s1, s2) {
-  let score = 50;
-  if (s1.department === s2.department) score += 15;
-  if (s1.hometown === s2.hometown) score += 10;
-  if (s1.language === s2.language) score += 10;
-  if (s1.traits?.food === s2.traits?.food) score += 5;
-  if (s1.traits?.sleep === s2.traits?.sleep) score += 5;
+  let score = 45;
+  if (s1.department === s2.department) score += 10;
+  if (s1.hometown && s2.hometown && s1.hometown.toLowerCase() === s2.hometown.toLowerCase()) score += 8;
+  if (s1.language && s2.language && s1.language.toLowerCase() === s2.language.toLowerCase()) score += 8;
+  if (s1.traits?.food === s2.traits?.food) score += 6;
+  if (s1.traits?.sleep === s2.traits?.sleep) score += 6;
+  if (s1.traits?.wake === s2.traits?.wake) score += 4;
+  if (s1.traits?.cleanliness === s2.traits?.cleanliness) score += 5;
+  if (s1.traits?.noise === s2.traits?.noise) score += 5;
+  if (s1.traits?.personality === s2.traits?.personality) score += 4;
+  if (s1.traits?.study === s2.traits?.study) score += 4;
+  if (s1.traits?.visitors === s2.traits?.visitors) score += 4;
 
-  const sharedInterests = s1.interests?.filter(i => s2.interests?.includes(i)) || [];
-  score += sharedInterests.length * 2.5;
+  const sharedInterests = s1.interests?.filter((i) => s2.interests?.includes(i)) || [];
+  score += Math.min(15, sharedInterests.length * 3);
 
   return Math.min(99, Math.max(55, Math.round(score)));
 }
+
 
 // GET recommended roommate matches
 router.get("/matches", async (req, res) => {

@@ -60,23 +60,37 @@ app.use((err, req, res, next) => {
 
 // Connect Database & Start Server
 async function startServer() {
+  app.listen(PORT, () => {
+    console.log(`====================================================`);
+    console.log(` BIT Roomie Connect Backend Server Running`);
+    console.log(` URL: http://localhost:${PORT}`);
+    console.log(` Health Check: http://localhost:${PORT}/api/health`);
+    console.log(`====================================================`);
+  });
+
+  mongoose.connection.on("error", (err) => {
+    console.warn(`⚠️ MongoDB Connection Event: ${err.message}`);
+  });
+
   try {
     console.log("Connecting to MongoDB Atlas...");
     await mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
     console.log("MongoDB Atlas connected successfully.");
-
-    app.listen(PORT, () => {
-      console.log(`====================================================`);
-      console.log(` BIT Roomie Connect Backend Server Running`);
-      console.log(` URL: http://localhost:${PORT}`);
-      console.log(` Health Check: http://localhost:${PORT}/api/health`);
-      console.log(`====================================================`);
-    });
   } catch (error) {
-    console.error(`\n❌ Could not connect to MongoDB: ${error.message}`);
-    console.error(`👉 Please update the MONGODB_URI in "backend/.env" with your valid MongoDB Atlas connection string.`);
-    console.error(`   Example: MONGODB_URI=mongodb+srv://<username>:<password>@cluster0.mongodb.net/bit_roomie_connect?retryWrites=true&w=majority\n`);
+    console.error(`\n❌ Could not connect to MongoDB Atlas: ${error.message}`);
+    console.error(`👉 Fix: Whitelist IP '0.0.0.0/0' (Allow access from anywhere) in MongoDB Atlas Network Access.`);
+    console.error(`   Check MONGODB_URI in "backend/.env": ${MONGODB_URI}\n`);
+
+    try {
+      console.log("Attempting fallback to local MongoDB (mongodb://127.0.0.1:27017/bit_roomie_connect)...");
+      await mongoose.connect("mongodb://127.0.0.1:27017/bit_roomie_connect", { serverSelectionTimeoutMS: 2000 });
+      console.log("Connected to local MongoDB fallback successfully.");
+    } catch (localErr) {
+      console.warn("Local MongoDB fallback also not running. Backend server remains active.");
+    }
   }
 }
 
 startServer();
+
+

@@ -115,7 +115,19 @@ router.get("/room-change", async (req, res) => {
 // POST room change request
 router.post("/room-change", async (req, res) => {
   try {
-    const { regNo, studentName, currentHostel, currentRoom, targetHostel, reason } = req.body;
+    const {
+      regNo,
+      studentName,
+      currentHostel,
+      currentRoom,
+      targetHostel,
+      roomType,
+      sharing,
+      reason,
+      parentName,
+      parentMobile,
+      medicalInfo,
+    } = req.body;
 
     if (!regNo || !reason) {
       return res.status(400).json({ error: "Registration number and reason are required." });
@@ -129,7 +141,12 @@ router.post("/room-change", async (req, res) => {
       currentHostel: currentHostel || "Sapphire Block",
       currentRoom: currentRoom || "312",
       targetHostel: targetHostel || "Emerald Block",
+      roomType: roomType || "Non-AC",
+      sharing: Number(sharing) || 2,
       reason,
+      parentName: parentName || "R. Subramanian",
+      parentMobile: parentMobile || "9843112233",
+      medicalInfo: medicalInfo || "",
       status: "Pending Warden Review",
       appliedDate: new Date().toISOString().slice(0, 10),
     });

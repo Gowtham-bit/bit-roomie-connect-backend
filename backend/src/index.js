@@ -2,6 +2,7 @@ import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
+import http from "http";
 
 import authRoutes from "./routes/auth.js";
 import hostelRoutes from "./routes/hostels.js";
@@ -13,12 +14,18 @@ import attendanceRoutes from "./routes/attendance.js";
 import notificationRoutes from "./routes/notifications.js";
 import applicationRoutes from "./routes/applications.js";
 import statsRoutes from "./routes/stats.js";
+import chatRoutes from "./routes/chat.js";
+import { setupSocketIO } from "./socket.js";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/bit_roomie_connect";
+
+// Create HTTP Server & Socket.io
+const server = http.createServer(app);
+setupSocketIO(server);
 
 // CORS & Middleware
 app.use(cors({ origin: true, credentials: true }));
@@ -46,6 +53,7 @@ app.use("/api/attendance", attendanceRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/applications", applicationRoutes);
 app.use("/api/stats", statsRoutes);
+app.use("/api/chat", chatRoutes);
 
 // 404 Handler
 app.use((req, res) => {
@@ -60,11 +68,12 @@ app.use((err, req, res, next) => {
 
 // Connect Database & Start Server
 async function startServer() {
-  app.listen(PORT, () => {
+  server.listen(PORT, () => {
     console.log(`====================================================`);
     console.log(` BIT Roomie Connect Backend Server Running`);
     console.log(` URL: http://localhost:${PORT}`);
     console.log(` Health Check: http://localhost:${PORT}/api/health`);
+    console.log(` WebSockets: Enabled (Socket.io)`);
     console.log(`====================================================`);
   });
 
@@ -92,5 +101,6 @@ async function startServer() {
 }
 
 startServer();
+
 
 

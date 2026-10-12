@@ -2,11 +2,12 @@ import mongoose from "mongoose";
 
 const complaintSchema = new mongoose.Schema(
   {
-    id: { type: String, required: true, unique: true },
+    id: { type: String, required: true },
     student: { type: String, required: true },
     regNo: { type: String, required: true },
     category: { type: String, required: true },
     title: { type: String, required: true },
+    description: { type: String, default: "" },
     hostel: { type: String, required: true },
     room: { type: String, required: true },
     priority: { type: String, enum: ["Low", "Medium", "High"], default: "Medium" },

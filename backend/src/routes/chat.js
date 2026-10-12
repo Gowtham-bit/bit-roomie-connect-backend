@@ -6,6 +6,16 @@ import { Student } from "../models/Student.js";
 
 const router = express.Router();
 
+const SAMPLE_STUDENTS = [
+  { id: "S001", regNo: "7376242CS101", name: "Karthik Raja", email: "karthik.cs@bitsathy.ac.in", dept: "CSE", department: "Computer Science and Engineering", year: 3, avatar: "https://i.pravatar.cc/160?img=11", role: "student" },
+  { id: "S002", regNo: "7376242CS102", name: "Surya Prakash", email: "surya.cs@bitsathy.ac.in", dept: "CSE", department: "Computer Science and Engineering", year: 3, avatar: "https://i.pravatar.cc/160?img=12", role: "student" },
+  { id: "S003", regNo: "7376242IT105", name: "Divya Bharathi", email: "divya.it@bitsathy.ac.in", dept: "IT", department: "Information Technology", year: 2, avatar: "https://i.pravatar.cc/160?img=44", role: "student" },
+  { id: "S004", regNo: "7376242EC201", name: "Vignesh Kumar", email: "vignesh.ece@bitsathy.ac.in", dept: "ECE", department: "Electronics and Communication Engineering", year: 4, avatar: "https://i.pravatar.cc/160?img=33", role: "student" },
+  { id: "S005", regNo: "7376242AD142", name: "Gowtham S", email: "gowtham.ad@bitsathy.ac.in", dept: "AIDS", department: "Artificial Intelligence and Data Science", year: 3, avatar: "https://i.pravatar.cc/160?img=15", role: "student" },
+  { id: "S006", regNo: "7376242ME302", name: "Hariharan R", email: "hari.mech@bitsathy.ac.in", dept: "MECH", department: "Mechanical Engineering", year: 2, avatar: "https://i.pravatar.cc/160?img=52", role: "student" },
+  { id: "S007", regNo: "7376242CS188", name: "Anitha M", email: "anitha.cs@bitsathy.ac.in", dept: "CSE", department: "Computer Science and Engineering", year: 3, avatar: "https://i.pravatar.cc/160?img=49", role: "student" },
+];
+
 // Helper to look up profile info (Student or Warden or Admin) by ID / regNo
 async function getUserProfile(userId) {
   if (userId === "W001") {
@@ -22,6 +32,10 @@ async function getUserProfile(userId) {
   if (student) {
     return student.toObject();
   }
+
+  const sampleMatch = SAMPLE_STUDENTS.find(s => s.id === userId || s.regNo === userId);
+  if (sampleMatch) return sampleMatch;
+
   return { id: userId, regNo: userId, name: userId, avatar: "https://i.pravatar.cc/160?img=12", dept: "Student" };
 }
 
@@ -137,7 +151,18 @@ router.get("/users", verifyToken, async (req, res) => {
       ];
     }
 
-    const students = await Student.find(filter).select("id regNo name email dept department avatar hostel room role").limit(20);
+    let students = await Student.find(filter).select("id regNo name email dept department avatar hostel room role").limit(20);
+
+    // If MongoDB has no student records yet, fallback to SAMPLE_STUDENTS
+    if (students.length === 0) {
+      const q = query ? query.toLowerCase() : "";
+      students = SAMPLE_STUDENTS.filter(
+        (s) =>
+          s.id !== currentUserId &&
+          s.regNo !== currentUserId &&
+          (!q || s.name.toLowerCase().includes(q) || s.regNo.toLowerCase().includes(q) || s.dept.toLowerCase().includes(q) || s.department.toLowerCase().includes(q))
+      );
+    }
 
     // Include Wardens in chat search
     const wardens = [

@@ -2,6 +2,7 @@ import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import { Message } from "./models/Message.js";
 import { Conversation } from "./models/Conversation.js";
+import { isAuthority } from "./routes/chat.js";
 
 import mongoose from "mongoose";
 
@@ -104,6 +105,18 @@ export function setupSocketIO(server) {
         }
 
         const senderId = userId;
+        const senderIsAuth = isAuthority(senderId, user?.role);
+        const receiverIsAuth = isAuthority(receiverId);
+
+        if (!senderIsAuth && !receiverIsAuth) {
+          if (callback) {
+            callback({
+              error: "Students are only permitted to message Wardens and Administrators. Student-to-student chat is not allowed.",
+            });
+          }
+          return;
+        }
+
         const trimmedText = text.trim();
         const messageId = new mongoose.Types.ObjectId();
         const now = new Date();

@@ -16,33 +16,91 @@ const SAMPLE_STUDENTS = [
   { id: "S007", regNo: "7376242CS188", name: "Anitha M", email: "anitha.cs@bitsathy.ac.in", dept: "CSE", department: "Computer Science and Engineering", year: 3, avatar: "https://i.pravatar.cc/160?img=49", role: "student" },
 ];
 
+export const AUTHORITIES = [
+  {
+    id: "W001",
+    regNo: "warden123",
+    name: "Boys Hostel Warden",
+    role: "warden",
+    avatar: "https://i.pravatar.cc/160?img=60",
+    dept: "Boys Hostel Administration",
+    wardenType: "Boys",
+    title: "Mr. K. Kumar (Boys Warden)",
+  },
+  {
+    id: "W002",
+    regNo: "gwarden123",
+    name: "Girls Hostel Warden",
+    role: "warden",
+    avatar: "https://i.pravatar.cc/160?img=47",
+    dept: "Girls Hostel Administration",
+    wardenType: "Girls",
+    title: "Mrs. S. Meenakshi (Girls Warden)",
+  },
+  {
+    id: "A001",
+    regNo: "admin123",
+    name: "System Administrator",
+    role: "admin",
+    avatar: "https://i.pravatar.cc/160?img=68",
+    dept: "Hostel IT & Operations",
+    title: "Mr. R. Arun (Chief Administrator)",
+  },
+];
+
+// Helper to determine whether an ID or role belongs to an authority (Warden / Admin)
+export function isAuthority(userId, role) {
+  if (role === "admin" || role === "warden") return true;
+  if (!userId) return false;
+  const uid = String(userId).trim().toLowerCase();
+  return (
+    uid === "w001" ||
+    uid === "warden123" ||
+    uid === "w002" ||
+    uid === "gwarden123" ||
+    uid === "a001" ||
+    uid === "admin123"
+  );
+}
+
 // Helper to look up profile info (Student or Warden or Admin) by ID / regNo
-async function getUserProfile(userId) {
-  if (userId === "W001") {
-    return { id: "W001", regNo: "warden123", name: "Boys Hostel Warden", role: "warden", avatar: "https://i.pravatar.cc/160?img=60", dept: "Hostel Admin" };
-  }
-  if (userId === "W002") {
-    return { id: "W002", regNo: "gwarden123", name: "Girls Hostel Warden", role: "warden", avatar: "https://i.pravatar.cc/160?img=47", dept: "Hostel Admin" };
-  }
-  if (userId === "A001") {
-    return { id: "A001", regNo: "admin123", name: "System Administrator", role: "admin", avatar: "https://i.pravatar.cc/160?img=68", dept: "IT Admin" };
+export async function getUserProfile(userId) {
+  const uid = String(userId || "").trim().toLowerCase();
+  const matchedAuth = AUTHORITIES.find(
+    (a) => a.id.toLowerCase() === uid || a.regNo.toLowerCase() === uid
+  );
+  if (matchedAuth) {
+    return { ...matchedAuth };
   }
 
-  const student = await Student.findOne({ $or: [{ id: userId }, { regNo: userId }] }).select("id regNo name email dept department avatar role hostel room");
+  const student = await Student.findOne({ $or: [{ id: userId }, { regNo: userId }] }).select(
+    "id regNo name email dept department avatar role hostel room"
+  );
   if (student) {
-    return student.toObject();
+    const obj = student.toObject();
+    obj.role = "student";
+    return obj;
   }
 
-  const sampleMatch = SAMPLE_STUDENTS.find(s => s.id === userId || s.regNo === userId);
-  if (sampleMatch) return sampleMatch;
+  const sampleMatch = SAMPLE_STUDENTS.find((s) => s.id === userId || s.regNo === userId);
+  if (sampleMatch) return { ...sampleMatch, role: "student" };
 
-  return { id: userId, regNo: userId, name: userId, avatar: "https://i.pravatar.cc/160?img=12", dept: "Student" };
+  return {
+    id: userId,
+    regNo: userId,
+    name: userId,
+    avatar: "https://i.pravatar.cc/160?img=12",
+    dept: "Student",
+    role: "student",
+  };
 }
 
 // Get all conversations for the logged in user
 router.get("/conversations", verifyToken, async (req, res) => {
   try {
     const userId = req.user.id || req.user.regNo;
+    const userRole = req.user.role;
+    const senderIsAuth = isAuthority(userId, userRole);
 
     const conversations = await Conversation.find({
       participants: userId,
@@ -66,7 +124,16 @@ router.get("/conversations", verifyToken, async (req, res) => {
       })
     );
 
-    res.json(formattedConversations);
+    // Rule: Students can ONLY chat to Warden and Admin.
+    // Filter out any student-to-student conversations for student accounts.
+    const filtered = formattedConversations.filter((conv) => {
+      if (!senderIsAuth) {
+        return isAuthority(conv.recipient.id || conv.recipient.regNo, conv.recipient.role);
+      }
+      return true;
+    });
+
+    res.json(filtered);
   } catch (error) {
     console.error("Get Conversations Error:", error);
     res.status(500).json({ error: "Failed to fetch conversations." });
@@ -77,6 +144,7 @@ router.get("/conversations", verifyToken, async (req, res) => {
 router.post("/conversations", verifyToken, async (req, res) => {
   try {
     const currentUserId = req.user.id || req.user.regNo;
+    const currentUserRole = req.user.role;
     const { targetId } = req.body;
 
     if (!targetId) {
@@ -85,6 +153,18 @@ router.post("/conversations", verifyToken, async (req, res) => {
 
     if (currentUserId === targetId) {
       return res.status(400).json({ error: "Cannot start a chat with yourself." });
+    }
+
+    const senderIsAuth = isAuthority(currentUserId, currentUserRole);
+    const targetRecipient = await getUserProfile(targetId);
+    const targetIsAuth = isAuthority(targetRecipient.id || targetRecipient.regNo, targetRecipient.role);
+
+    // 🔒 Enforce Rule: Students can ONLY chat to Warden and Admin.
+    // Student to student chat is strictly prohibited.
+    if (!senderIsAuth && !targetIsAuth) {
+      return res.status(403).json({
+        error: "Students are only permitted to message Wardens and Administrators.",
+      });
     }
 
     let conversation = await Conversation.findOne({
@@ -100,12 +180,10 @@ router.post("/conversations", verifyToken, async (req, res) => {
       await conversation.save();
     }
 
-    const recipient = await getUserProfile(targetId);
-
     res.status(200).json({
       _id: conversation._id,
       participants: conversation.participants,
-      recipient,
+      recipient: targetRecipient,
       lastMessage: conversation.lastMessage,
       updatedAt: conversation.updatedAt,
     });
@@ -120,10 +198,21 @@ router.get("/conversations/:id/messages", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id || req.user.regNo;
+    const userRole = req.user.role;
+    const senderIsAuth = isAuthority(userId, userRole);
 
     const conversation = await Conversation.findById(id);
     if (!conversation || !conversation.participants.includes(userId)) {
       return res.status(403).json({ error: "Access denied to this conversation." });
+    }
+
+    // Check student-to-student restriction
+    const otherParticipantId = conversation.participants.find((p) => p !== userId) || userId;
+    const otherRecipient = await getUserProfile(otherParticipantId);
+    const otherIsAuth = isAuthority(otherRecipient.id || otherRecipient.regNo, otherRecipient.role);
+
+    if (!senderIsAuth && !otherIsAuth) {
+      return res.status(403).json({ error: "Student-to-student messaging is disabled." });
     }
 
     const messages = await Message.find({ conversationId: id }).sort({ createdAt: 1 });
@@ -139,38 +228,74 @@ router.get("/conversations/:id/messages", verifyToken, async (req, res) => {
 router.get("/users", verifyToken, async (req, res) => {
   try {
     const currentUserId = req.user.id || req.user.regNo;
+    const currentUserRole = req.user.role;
     const { query } = req.query;
+    const q = query ? query.toLowerCase().trim() : "";
 
-    let filter = { id: { $ne: currentUserId }, regNo: { $ne: currentUserId } };
-    if (query) {
-      filter.$or = [
-        { name: { $regex: query, $options: "i" } },
-        { regNo: { $regex: query, $options: "i" } },
-        { department: { $regex: query, $options: "i" } },
-        { dept: { $regex: query, $options: "i" } },
-      ];
-    }
+    const senderIsAuth = isAuthority(currentUserId, currentUserRole);
 
-    let students = await Student.find(filter).select("id regNo name email dept department avatar hostel room role").limit(20);
-
-    // If MongoDB has no student records yet, fallback to SAMPLE_STUDENTS
-    if (students.length === 0) {
-      const q = query ? query.toLowerCase() : "";
-      students = SAMPLE_STUDENTS.filter(
-        (s) =>
-          s.id !== currentUserId &&
-          s.regNo !== currentUserId &&
-          (!q || s.name.toLowerCase().includes(q) || s.regNo.toLowerCase().includes(q) || s.dept.toLowerCase().includes(q) || s.department.toLowerCase().includes(q))
+    // List of available authorities (excluding the current user if they are that authority)
+    const availableAuthorities = AUTHORITIES.filter((auth) => {
+      if (auth.id === currentUserId || auth.regNo === currentUserId) return false;
+      if (!q) return true;
+      return (
+        auth.name.toLowerCase().includes(q) ||
+        auth.dept.toLowerCase().includes(q) ||
+        auth.regNo.toLowerCase().includes(q) ||
+        auth.role.toLowerCase().includes(q) ||
+        (auth.title && auth.title.toLowerCase().includes(q))
       );
+    });
+
+    // 🔴 IF THE REQUESTING USER IS A STUDENT:
+    // Students can ONLY chat to Warden and Admin.
+    // They must NEVER see other students in search results.
+    if (!senderIsAuth) {
+      return res.json(availableAuthorities);
     }
 
-    // Include Wardens in chat search
-    const wardens = [
-      { id: "W001", regNo: "warden123", name: "Boys Hostel Warden", role: "warden", avatar: "https://i.pravatar.cc/160?img=60", dept: "Hostel Admin" },
-      { id: "W002", regNo: "gwarden123", name: "Girls Hostel Warden", role: "warden", avatar: "https://i.pravatar.cc/160?img=47", dept: "Hostel Admin" },
-    ].filter((w) => w.id !== currentUserId && (!query || w.name.toLowerCase().includes(query.toLowerCase()) || w.dept.toLowerCase().includes(query.toLowerCase())));
+    // 🟢 IF THE REQUESTING USER IS AN ADMIN OR WARDEN:
+    // Admin and Warden can chat to all students, and to each other!
+    let studentFilter = {
+      $and: [
+        { id: { $ne: currentUserId } },
+        { regNo: { $ne: currentUserId } },
+      ],
+    };
 
-    res.json([...wardens, ...students]);
+    if (q) {
+      studentFilter.$and.push({
+        $or: [
+          { name: { $regex: q, $options: "i" } },
+          { regNo: { $regex: q, $options: "i" } },
+          { department: { $regex: q, $options: "i" } },
+          { dept: { $regex: q, $options: "i" } },
+          { hostel: { $regex: q, $options: "i" } },
+          { room: { $regex: q, $options: "i" } },
+        ],
+      });
+    }
+
+    let students = await Student.find(studentFilter)
+      .select("id regNo name email dept department avatar hostel room role")
+      .limit(30);
+
+    // Fallback if no students in DB or for development testing
+    if (students.length === 0) {
+      students = SAMPLE_STUDENTS.filter((s) => {
+        if (s.id === currentUserId || s.regNo === currentUserId) return false;
+        if (!q) return true;
+        return (
+          s.name.toLowerCase().includes(q) ||
+          s.regNo.toLowerCase().includes(q) ||
+          s.dept.toLowerCase().includes(q) ||
+          s.department.toLowerCase().includes(q)
+        );
+      });
+    }
+
+    // Return authorities (Wardens + Admin) followed by Students
+    res.json([...availableAuthorities, ...students]);
   } catch (error) {
     console.error("Search Users Error:", error);
     res.status(500).json({ error: "Failed to search users." });

@@ -3,6 +3,8 @@ import jwt from "jsonwebtoken";
 import { Message } from "./models/Message.js";
 import { Conversation } from "./models/Conversation.js";
 
+import mongoose from "mongoose";
+
 // Keep track of active sockets per user identifier
 // Map<string, Set<string>> userId/regNo -> Set of socket.ids
 const userSocketsMap = new Map();
@@ -103,9 +105,34 @@ export function setupSocketIO(server) {
 
         const senderId = userId;
         const trimmedText = text.trim();
+        const messageId = new mongoose.Types.ObjectId();
+        const now = new Date();
 
-        // 1. Create and save Message document
+        const messagePayload = {
+          _id: String(messageId),
+          conversationId: String(conversationId),
+          senderId,
+          receiverId,
+          text: trimmedText,
+          isRead: false,
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          tempId: tempId || null,
+        };
+
+        // ⚡ INSTANT DELIVERY (0ms delay): Emit immediately to conversation room & receiver's personal user rooms!
+        io.to(`conv_${conversationId}`).emit("receive_message", messagePayload);
+        io.to(`user_${receiverId}`).emit("receive_message", messagePayload);
+
+        // Immediate typing stop
+        socket.to(`conv_${conversationId}`).emit("user_stop_typing", { conversationId, userId: senderId });
+        socket.to(`user_${receiverId}`).emit("user_stop_typing", { conversationId, userId: senderId });
+
+        if (callback) callback({ status: "ok", message: messagePayload });
+
+        // 💾 Persist to MongoDB concurrently in background
         const newMessage = new Message({
+          _id: messageId,
           conversationId,
           senderId,
           receiverId,
@@ -114,7 +141,6 @@ export function setupSocketIO(server) {
         });
         await newMessage.save();
 
-        // 2. Update Conversation document
         const conversation = await Conversation.findById(conversationId);
         if (conversation) {
           conversation.lastMessage = trimmedText;
@@ -132,34 +158,21 @@ export function setupSocketIO(server) {
             conversation.unreadCounts[receiverId] = currentUnread + 1;
           }
           await conversation.save();
-        }
 
-        const messagePayload = {
-          ...newMessage.toObject(),
-          tempId: tempId || null,
-        };
+          // Emit updated conversation preview to participants
+          const participantsToNotify = conversation?.participants?.length
+            ? conversation.participants
+            : [senderId, receiverId];
 
-        // 3. Emit message to conversation room (anyone currently viewing the conversation)
-        io.to(`conv_${conversationId}`).emit("receive_message", messagePayload);
-
-        // 4. Emit directly to receiver's user room (ensures instant delivery even if receiver hasn't opened room)
-        io.to(`user_${receiverId}`).emit("receive_message", messagePayload);
-
-        // 5. Emit updated conversation state to both participants for instant sidebar updates
-        const participantsToNotify = conversation?.participants?.length
-          ? conversation.participants
-          : [senderId, receiverId];
-
-        participantsToNotify.forEach((pId) => {
-          io.to(`user_${pId}`).emit("conversation_updated", {
-            conversationId,
-            lastMessage: trimmedText,
-            lastMessageSender: senderId,
-            updatedAt: newMessage.createdAt || new Date(),
+          participantsToNotify.forEach((pId) => {
+            io.to(`user_${pId}`).emit("conversation_updated", {
+              conversationId,
+              lastMessage: trimmedText,
+              lastMessageSender: senderId,
+              updatedAt: now,
+            });
           });
-        });
-
-        if (callback) callback({ status: "ok", message: messagePayload });
+        }
       } catch (err) {
         console.error("Socket send_message Error:", err);
         if (callback) callback({ error: "Failed to process message" });

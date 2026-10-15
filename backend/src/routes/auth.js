@@ -3,8 +3,10 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { Student } from "../models/Student.js";
 import { verifyToken } from "../middleware/auth.js";
+import { OAuth2Client } from "google-auth-library";
 
 const router = express.Router();
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Register new student account
 router.post("/register", async (req, res) => {
@@ -257,6 +259,120 @@ router.patch("/profile", verifyToken, async (req, res) => {
   } catch (error) {
     console.error("Update Profile Error:", error);
     res.status(500).json({ error: "Failed to update profile." });
+  }
+});
+
+// Google Sign-In Endpoint
+router.post("/google", async (req, res) => {
+  try {
+    const { token, role = "student" } = req.body;
+    if (!token) {
+      return res.status(400).json({ error: "Google credential token is required." });
+    }
+
+    let payload;
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+
+    // Cryptographic verification if real Google Client ID is configured
+    if (clientId && clientId !== "your-google-client-id.apps.googleusercontent.com") {
+      try {
+        const ticket = await googleClient.verifyIdToken({
+          idToken: token,
+          audience: clientId,
+        });
+        payload = ticket.getPayload();
+      } catch (verifyErr) {
+        console.error("Google verify token error:", verifyErr.message);
+        return res.status(401).json({ error: "Invalid Google token: " + verifyErr.message });
+      }
+    } else {
+      // In development / before real credentials are added to .env, decode the JWT payload
+      try {
+        const base64Url = token.split(".")[1];
+        const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+        const jsonPayload = decodeURIComponent(
+          atob(base64)
+            .split("")
+            .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+            .join("")
+        );
+        payload = JSON.parse(jsonPayload);
+        console.log("ℹ️ Decoded Google token in dev mode for:", payload?.email);
+      } catch (decodeErr) {
+        return res.status(400).json({ error: "Failed to parse Google token payload." });
+      }
+    }
+
+    if (!payload || !payload.email) {
+      return res.status(400).json({ error: "No email address found in Google token." });
+    }
+
+    const email = payload.email.toLowerCase().trim();
+    const name = payload.name || payload.given_name || "BIT Student";
+    const picture = payload.picture || `https://i.pravatar.cc/160?img=12`;
+    const googleId = payload.sub;
+
+    // Check if user already exists
+    let student = await Student.findOne({ email });
+
+    if (!student) {
+      const count = await Student.countDocuments();
+      const generatedId = `S${String(count + 1).padStart(3, "0")}`;
+      const generatedRegNo = `7376242${generatedId}`;
+
+      student = new Student({
+        id: generatedId,
+        regNo: generatedRegNo,
+        name,
+        email,
+        googleId,
+        avatar: picture,
+        department: "Computer Science and Engineering",
+        dept: "CSE",
+        year: 1,
+        gender: "Male",
+        role: "student",
+        mobile: "9876543210",
+        hometown: "Erode",
+        language: "Tamil",
+        interests: ["Coding", "Technology", "Cricket"],
+        traits: {
+          sleep: "10 PM – 12 AM",
+          wake: "6–8 AM",
+          cleanliness: "Very Clean",
+          food: "Veg",
+          personality: "Ambivert",
+          noise: "Moderate",
+          study: "Night",
+          visitors: "Occasionally",
+          qualities: ["Clean", "Friendly"],
+        },
+      });
+
+      await student.save();
+    } else {
+      if (!student.googleId) student.googleId = googleId;
+      if (!student.avatar) student.avatar = picture;
+      await student.save();
+    }
+
+    const appToken = jwt.sign(
+      { id: student.id, regNo: student.regNo, role: student.role || "student" },
+      process.env.JWT_SECRET || "default_secret",
+      { expiresIn: "7d" }
+    );
+
+    const studentObj = student.toObject();
+    delete studentObj.password;
+
+    res.json({
+      token: appToken,
+      user: studentObj,
+      role: student.role || "student",
+    });
+  } catch (error) {
+    console.error("Google Auth Route Error:", error);
+    res.status(500).json({ error: "Google authentication failed: " + error.message });
   }
 });
 

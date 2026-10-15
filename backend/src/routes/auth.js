@@ -6,7 +6,10 @@ import { verifyToken } from "../middleware/auth.js";
 import { OAuth2Client } from "google-auth-library";
 
 const router = express.Router();
-const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const GOOGLE_CLIENT_ID =
+  process.env.GOOGLE_CLIENT_ID ||
+  "1050820316028-rhevkb6moeijfbsb0abdutj7b8nh8qrv.apps.googleusercontent.com";
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 // Register new student account
 router.post("/register", async (req, res) => {
@@ -271,7 +274,7 @@ router.post("/google", async (req, res) => {
     }
 
     let payload;
-    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const clientId = process.env.GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID;
 
     // Cryptographic verification if real Google Client ID is configured
     if (clientId && clientId !== "your-google-client-id.apps.googleusercontent.com") {

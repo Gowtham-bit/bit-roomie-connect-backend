@@ -69,12 +69,12 @@ router.post("/register", async (req, res) => {
       language: language || "Tamil",
       interests: Array.isArray(interests) ? interests : (interests ? interests.split(",").map(s => s.trim()) : ["Coding", "Cricket", "Gaming"]),
       traits: defaultTraits,
-      avatar: `https://i.pravatar.cc/160?img=${(count % 70) + 1}`,
+      avatar: req.body.avatar || "",
+      isProfileComplete: false,
       role: "student",
     });
 
     await newStudent.save();
-
 
     const token = jwt.sign(
       { id: newStudent.id, regNo: newStudent.regNo, role: newStudent.role },
@@ -85,7 +85,7 @@ router.post("/register", async (req, res) => {
     const studentObj = newStudent.toObject();
     delete studentObj.password;
 
-    res.status(201).json({ token, user: studentObj });
+    res.status(201).json({ token, user: studentObj, isNewUser: true });
   } catch (error) {
     console.error("Register Error:", error);
     res.status(500).json({ error: "Failed to register account." });
@@ -183,7 +183,12 @@ router.post("/login", async (req, res) => {
     if (studentObj.dept === "CSaE" || studentObj.dept === "CSAE") studentObj.dept = "CSE";
     if (studentObj.department === "CSAE" || studentObj.department === "CSaE") studentObj.department = "Computer Science and Engineering";
 
-    res.json({ token, user: studentObj, role: "student" });
+    res.json({
+      token,
+      user: studentObj,
+      role: "student",
+      isNewUser: student.isProfileComplete === false,
+    });
   } catch (error) {
     console.error("Login Error:", error);
     res.status(500).json({ error: "Failed to log in." });
@@ -239,6 +244,7 @@ router.patch("/profile", verifyToken, async (req, res) => {
       "officeLocation",
       "dateOfJoining",
       "responsibilities",
+      "isProfileComplete",
     ];
 
     fields.forEach((field) => {
@@ -246,6 +252,17 @@ router.patch("/profile", verifyToken, async (req, res) => {
         student[field] = req.body[field];
       }
     });
+
+    if (req.body.regNo && req.body.regNo.trim() && req.body.regNo.trim() !== student.regNo) {
+      const cleanReg = req.body.regNo.trim();
+      const existing = await Student.findOne({ regNo: cleanReg });
+      if (existing && existing._id.toString() !== student._id.toString()) {
+        return res.status(400).json({ error: `Register number ${cleanReg} is already taken by another student.` });
+      }
+      student.regNo = cleanReg;
+    }
+
+    student.isProfileComplete = true;
 
     if (req.body.traits && typeof req.body.traits === "object") {
       student.traits = { ...student.traits, ...req.body.traits };
@@ -258,7 +275,14 @@ router.patch("/profile", verifyToken, async (req, res) => {
     await student.save();
     const updated = student.toObject();
     delete updated.password;
-    res.json(updated);
+
+    const newToken = jwt.sign(
+      { id: student.id, regNo: student.regNo, role: student.role || "student" },
+      process.env.JWT_SECRET || "default_secret",
+      { expiresIn: "7d" }
+    );
+
+    res.json({ ...updated, token: newToken });
   } catch (error) {
     console.error("Update Profile Error:", error);
     res.status(500).json({ error: "Failed to update profile." });
@@ -317,8 +341,10 @@ router.post("/google", async (req, res) => {
 
     // Check if user already exists
     let student = await Student.findOne({ email });
+    let isNewUser = false;
 
     if (!student) {
+      isNewUser = true;
       const count = await Student.countDocuments();
       const generatedId = `S${String(count + 1).padStart(3, "0")}`;
       const generatedRegNo = `7376242${generatedId}`;
@@ -329,16 +355,17 @@ router.post("/google", async (req, res) => {
         name,
         email,
         googleId,
-        avatar: picture,
+        avatar: picture || "",
         department: "Computer Science and Engineering",
         dept: "CSE",
         year: 1,
         gender: "Male",
         role: "student",
-        mobile: "9876543210",
-        hometown: "Erode",
+        mobile: "",
+        hometown: "",
         language: "Tamil",
-        interests: ["Coding", "Technology", "Cricket"],
+        isProfileComplete: false,
+        interests: ["Coding", "Technology"],
         traits: {
           sleep: "10 PM – 12 AM",
           wake: "6–8 AM",
@@ -355,7 +382,7 @@ router.post("/google", async (req, res) => {
       await student.save();
     } else {
       if (!student.googleId) student.googleId = googleId;
-      if (!student.avatar) student.avatar = picture;
+      if (!student.avatar && picture) student.avatar = picture;
       await student.save();
     }
 
@@ -372,6 +399,7 @@ router.post("/google", async (req, res) => {
       token: appToken,
       user: studentObj,
       role: student.role || "student",
+      isNewUser: isNewUser || student.isProfileComplete === false,
     });
   } catch (error) {
     console.error("Google Auth Route Error:", error);

@@ -78,12 +78,21 @@ async function startServer() {
   });
 
   mongoose.connection.on("error", (err) => {
-    console.warn(`⚠️ MongoDB Connection Event: ${err.message}`);
+    console.warn(`⚠️ MongoDB Connection Notice: ${err.message || "Transient network glitch"}`);
+  });
+  mongoose.connection.on("disconnected", () => {
+    console.log("ℹ️ MongoDB disconnected. Retrying connection...");
+  });
+  mongoose.connection.on("reconnected", () => {
+    console.log("✅ MongoDB reconnected successfully.");
   });
 
   try {
     console.log("Connecting to MongoDB Atlas...");
-    await mongoose.connect(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
+    await mongoose.connect(MONGODB_URI, {
+      serverSelectionTimeoutMS: 20000,
+      connectTimeoutMS: 20000,
+    });
     console.log("MongoDB Atlas connected successfully.");
   } catch (error) {
     console.error(`\n❌ Could not connect to MongoDB Atlas: ${error.message}`);

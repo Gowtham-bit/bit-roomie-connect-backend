@@ -71,6 +71,7 @@ router.post("/register", async (req, res) => {
       traits: defaultTraits,
       avatar: req.body.avatar || "",
       isProfileComplete: false,
+      isRegistered: true,
       role: "student",
     });
 
@@ -365,6 +366,7 @@ router.post("/google", async (req, res) => {
         hometown: "",
         language: "Tamil",
         isProfileComplete: false,
+        isRegistered: true,
         interests: ["Coding", "Technology"],
         traits: {
           sleep: "10 PM – 12 AM",

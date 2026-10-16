@@ -25,6 +25,7 @@ const studentSchema = new mongoose.Schema(
     compatibility: { type: Number, default: 85 },
     role: { type: String, enum: ["student", "warden", "admin"], default: "student" },
     isProfileComplete: { type: Boolean, default: false },
+    isRegistered: { type: Boolean, default: true },
     guardian: {
       name: { type: String, default: "Subramanian R" },
       relation: { type: String, default: "Father" },

@@ -2,7 +2,7 @@ import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import { Message } from "./models/Message.js";
 import { Conversation } from "./models/Conversation.js";
-import { isAuthority } from "./routes/chat.js";
+import { getUserAliases, isAuthority } from "./routes/chat.js";
 
 import mongoose from "mongoose";
 
@@ -63,20 +63,17 @@ export function setupSocketIO(server) {
   io.on("connection", (socket) => {
     const user = socket.user || {};
     const userId = user.id || user.regNo;
-    const userRegNo = user.regNo;
-    const userCustomId = user.id;
+    const myAliases = getUserAliases(user);
+    if (userId && !myAliases.includes(userId)) myAliases.push(userId);
+    if (user.regNo && !myAliases.includes(user.regNo)) myAliases.push(user.regNo);
 
-    // Track online user sockets
-    trackUserSocket(userId, socket.id);
-    if (userRegNo) trackUserSocket(userRegNo, socket.id);
-    if (userCustomId) trackUserSocket(userCustomId, socket.id);
+    // Track online user sockets and join personal user rooms for all aliases
+    myAliases.forEach((alias) => {
+      trackUserSocket(alias, socket.id);
+      socket.join(`user_${alias}`);
+    });
 
-    // Join personal user rooms for guaranteed real-time message routing
-    if (userId) socket.join(`user_${userId}`);
-    if (userCustomId) socket.join(`user_${userCustomId}`);
-    if (userRegNo) socket.join(`user_${userRegNo}`);
-
-    console.log(`🔌 Socket Connected: User [${userId}] (Socket ID: ${socket.id})`);
+    console.log(`🔌 Socket Connected: User [${userId}] (Aliases: ${myAliases.join(", ")}) (Socket ID: ${socket.id})`);
 
     // Broadcast updated online users list
     io.emit("get_online_users", Array.from(userSocketsMap.keys()));
@@ -105,17 +102,9 @@ export function setupSocketIO(server) {
         }
 
         const senderId = userId;
-        const senderIsAuth = isAuthority(senderId, user?.role);
-        const receiverIsAuth = isAuthority(receiverId);
-
-        if (!senderIsAuth && !receiverIsAuth) {
-          if (callback) {
-            callback({
-              error: "Students are only permitted to message Wardens and Administrators. Student-to-student chat is not allowed.",
-            });
-          }
-          return;
-        }
+        const senderAliases = myAliases;
+        const receiverAliases = getUserAliases(receiverId);
+        if (!receiverAliases.includes(receiverId)) receiverAliases.push(receiverId);
 
         const trimmedText = text.trim();
         const messageId = new mongoose.Types.ObjectId();
@@ -133,13 +122,17 @@ export function setupSocketIO(server) {
           tempId: tempId || null,
         };
 
-        // ⚡ INSTANT DELIVERY (0ms delay): Emit immediately to conversation room & receiver's personal user rooms!
+        // ⚡ INSTANT DELIVERY (0ms delay): Emit to conversation room & ALL receiver's personal user rooms
         io.to(`conv_${conversationId}`).emit("receive_message", messagePayload);
-        io.to(`user_${receiverId}`).emit("receive_message", messagePayload);
+        receiverAliases.forEach((a) => {
+          io.to(`user_${a}`).emit("receive_message", messagePayload);
+        });
 
         // Immediate typing stop
         socket.to(`conv_${conversationId}`).emit("user_stop_typing", { conversationId, userId: senderId });
-        socket.to(`user_${receiverId}`).emit("user_stop_typing", { conversationId, userId: senderId });
+        receiverAliases.forEach((a) => {
+          socket.to(`user_${a}`).emit("user_stop_typing", { conversationId, userId: senderId });
+        });
 
         if (callback) callback({ status: "ok", message: messagePayload });
 
@@ -159,30 +152,36 @@ export function setupSocketIO(server) {
           conversation.lastMessage = trimmedText;
           conversation.lastMessageSender = senderId;
 
-          // Increment unread count for receiver
+          // Increment unread count for receiver aliases
           if (!conversation.unreadCounts) conversation.unreadCounts = {};
-          const currentUnread =
-            conversation.unreadCounts?.get?.(receiverId) ||
-            conversation.unreadCounts?.[receiverId] ||
-            0;
-          if (typeof conversation.unreadCounts.set === "function") {
-            conversation.unreadCounts.set(receiverId, currentUnread + 1);
-          } else {
-            conversation.unreadCounts[receiverId] = currentUnread + 1;
-          }
+          receiverAliases.forEach((rAlias) => {
+            const currentUnread =
+              conversation.unreadCounts?.get?.(rAlias) ||
+              conversation.unreadCounts?.[rAlias] ||
+              0;
+            if (typeof conversation.unreadCounts.set === "function") {
+              conversation.unreadCounts.set(rAlias, currentUnread + 1);
+            } else {
+              conversation.unreadCounts[rAlias] = currentUnread + 1;
+            }
+          });
           await conversation.save();
 
           // Emit updated conversation preview to participants
           const participantsToNotify = conversation?.participants?.length
             ? conversation.participants
-            : [senderId, receiverId];
+            : [...senderAliases, ...receiverAliases];
 
           participantsToNotify.forEach((pId) => {
-            io.to(`user_${pId}`).emit("conversation_updated", {
-              conversationId,
-              lastMessage: trimmedText,
-              lastMessageSender: senderId,
-              updatedAt: now,
+            const pAliases = getUserAliases(pId);
+            if (!pAliases.includes(pId)) pAliases.push(pId);
+            pAliases.forEach((a) => {
+              io.to(`user_${a}`).emit("conversation_updated", {
+                conversationId,
+                lastMessage: trimmedText,
+                lastMessageSender: senderId,
+                updatedAt: now,
+              });
             });
           });
         }
@@ -196,14 +195,22 @@ export function setupSocketIO(server) {
     socket.on("typing", ({ conversationId, receiverId }) => {
       socket.to(`conv_${conversationId}`).emit("user_typing", { conversationId, userId });
       if (receiverId) {
-        socket.to(`user_${receiverId}`).emit("user_typing", { conversationId, userId });
+        const receiverAliases = getUserAliases(receiverId);
+        if (!receiverAliases.includes(receiverId)) receiverAliases.push(receiverId);
+        receiverAliases.forEach((a) => {
+          socket.to(`user_${a}`).emit("user_typing", { conversationId, userId });
+        });
       }
     });
 
     socket.on("stop_typing", ({ conversationId, receiverId }) => {
       socket.to(`conv_${conversationId}`).emit("user_stop_typing", { conversationId, userId });
       if (receiverId) {
-        socket.to(`user_${receiverId}`).emit("user_stop_typing", { conversationId, userId });
+        const receiverAliases = getUserAliases(receiverId);
+        if (!receiverAliases.includes(receiverId)) receiverAliases.push(receiverId);
+        receiverAliases.forEach((a) => {
+          socket.to(`user_${a}`).emit("user_stop_typing", { conversationId, userId });
+        });
       }
     });
 
@@ -211,24 +218,30 @@ export function setupSocketIO(server) {
     socket.on("mark_as_read", async ({ conversationId }) => {
       try {
         await Message.updateMany(
-          { conversationId, receiverId: userId, isRead: false },
+          { conversationId, receiverId: { $in: myAliases }, isRead: false },
           { $set: { isRead: true } }
         );
 
         const conversation = await Conversation.findById(conversationId);
         if (conversation) {
-          if (typeof conversation.unreadCounts?.set === "function") {
-            conversation.unreadCounts.set(userId, 0);
-          } else if (conversation.unreadCounts) {
-            conversation.unreadCounts[userId] = 0;
-          }
+          myAliases.forEach((a) => {
+            if (typeof conversation.unreadCounts?.set === "function") {
+              conversation.unreadCounts.set(a, 0);
+            } else if (conversation.unreadCounts) {
+              conversation.unreadCounts[a] = 0;
+            }
+          });
           await conversation.save();
         }
 
         io.to(`conv_${conversationId}`).emit("messages_read", { conversationId, readBy: userId });
         if (conversation) {
           conversation.participants.forEach((pId) => {
-            io.to(`user_${pId}`).emit("messages_read", { conversationId, readBy: userId });
+            const pAliases = getUserAliases(pId);
+            if (!pAliases.includes(pId)) pAliases.push(pId);
+            pAliases.forEach((a) => {
+              io.to(`user_${a}`).emit("messages_read", { conversationId, readBy: userId });
+            });
           });
         }
       } catch (err) {
@@ -238,9 +251,9 @@ export function setupSocketIO(server) {
 
     // Socket Disconnect
     socket.on("disconnect", () => {
-      untrackUserSocket(userId, socket.id);
-      if (userRegNo) untrackUserSocket(userRegNo, socket.id);
-      if (userCustomId) untrackUserSocket(userCustomId, socket.id);
+      myAliases.forEach((alias) => {
+        untrackUserSocket(alias, socket.id);
+      });
 
       console.log(`🔌 Socket Disconnected: User [${userId}]`);
       io.emit("get_online_users", Array.from(userSocketsMap.keys()));
@@ -249,3 +262,4 @@ export function setupSocketIO(server) {
 
   return io;
 }
+

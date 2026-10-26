@@ -15,6 +15,7 @@ import notificationRoutes from "./routes/notifications.js";
 import applicationRoutes from "./routes/applications.js";
 import statsRoutes from "./routes/stats.js";
 import chatRoutes from "./routes/chat.js";
+import studentRoutes from "./routes/students.js";
 import { setupSocketIO } from "./socket.js";
 
 dotenv.config();
@@ -54,6 +55,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/applications", applicationRoutes);
 app.use("/api/stats", statsRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/students", studentRoutes);
 
 // 404 Handler
 app.use((req, res) => {

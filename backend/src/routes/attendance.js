@@ -48,4 +48,33 @@ router.post("/", async (req, res) => {
   }
 });
 
+// POST bulk log attendance for room/floor
+router.post("/bulk", async (req, res) => {
+  try {
+    const { records } = req.body;
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({ error: "An array of attendance records is required." });
+    }
+
+    const count = await Attendance.countDocuments();
+    const today = new Date().toISOString().slice(0, 10);
+
+    const docs = records.map((r, i) => ({
+      id: `ATT${String(count + i + 1).padStart(4, "0")}`,
+      regNo: r.regNo,
+      studentName: r.studentName || "Student",
+      date: r.date || today,
+      status: r.status || "Present",
+      hostel: r.hostel || "Sapphire Block",
+      room: r.room || "312",
+    }));
+
+    const inserted = await Attendance.insertMany(docs);
+    res.status(201).json({ message: `Successfully logged attendance for ${inserted.length} students.`, records: inserted });
+  } catch (error) {
+    console.error("Bulk Attendance Error:", error);
+    res.status(500).json({ error: "Failed to bulk log attendance." });
+  }
+});
+
 export default router;

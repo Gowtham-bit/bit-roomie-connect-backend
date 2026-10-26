@@ -120,4 +120,54 @@ router.post("/request", async (req, res) => {
   }
 });
 
+// POST execute compatibility auto-match algorithm
+router.post("/auto-match", async (req, res) => {
+  try {
+    const { gender = "Male", minScore = 70 } = req.body;
+    const students = await Student.find({ gender })
+      .select("id regNo name department dept year hometown language traits interests avatar")
+      .limit(60);
+
+    const matches = [];
+    const used = new Set();
+
+    for (let i = 0; i < students.length; i++) {
+      if (used.has(students[i].regNo)) continue;
+      let bestMatch = null;
+      let highestScore = 0;
+
+      for (let j = i + 1; j < students.length; j++) {
+        if (used.has(students[j].regNo)) continue;
+        const score = calculateCompatibility(students[i], students[j]);
+        if (score > highestScore && score >= minScore) {
+          highestScore = score;
+          bestMatch = students[j];
+        }
+      }
+
+      if (bestMatch) {
+        used.add(students[i].regNo);
+        used.add(bestMatch.regNo);
+        matches.push({
+          id: `PAIR_${students[i].regNo}_${bestMatch.regNo}`,
+          student1: students[i],
+          student2: bestMatch,
+          compatibility: highestScore,
+          status: "High Compatibility Pair",
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      count: matches.length,
+      matches,
+      message: `Successfully executed compatibility algorithm: ${matches.length} high-compatibility roommate pairings identified.`,
+    });
+  } catch (error) {
+    console.error("Auto Match Error:", error);
+    res.status(500).json({ error: "Failed to run auto-match algorithm." });
+  }
+});
+
 export default router;

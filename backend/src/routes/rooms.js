@@ -71,4 +71,84 @@ router.get("/:id", async (req, res) => {
   }
 });
 
+// POST create new room
+router.post("/", async (req, res) => {
+  try {
+    const { hostelId, hostelName, number, floor, capacity, type, rent, facilities } = req.body;
+    if (!hostelName || !number) {
+      return res.status(400).json({ error: "Hostel name and room number are required." });
+    }
+
+    const cleanNum = String(number).trim();
+    const existing = await Room.findOne({ hostelName, number: cleanNum });
+    if (existing) {
+      return res.status(400).json({ error: `Room ${cleanNum} already exists in ${hostelName}.` });
+    }
+
+    const newRoom = new Room({
+      id: `${hostelId || "H01"}_${cleanNum}`,
+      hostelId: hostelId || "H01",
+      hostelName,
+      number: cleanNum,
+      floor: Number(floor) || 0,
+      capacity: Number(capacity) || 2,
+      occupied: 0,
+      type: type || "Non-AC",
+      rent: Number(rent) || 56000,
+      facilities: facilities || ["Wi-Fi", "Study Table", "Hot Water"],
+    });
+
+    await newRoom.save();
+    res.status(201).json(newRoom);
+  } catch (error) {
+    console.error("Create Room Error:", error);
+    res.status(500).json({ error: "Failed to create room." });
+  }
+});
+
+// PATCH update room details
+router.patch("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const room = await Room.findOne({
+      $or: [{ id }, { _id: id.match(/^[0-9a-fA-F]{24}$/) ? id : null }],
+    });
+
+    if (!room) {
+      return res.status(404).json({ error: "Room not found." });
+    }
+
+    const fields = ["capacity", "occupied", "type", "rent", "facilities", "floor"];
+    fields.forEach((f) => {
+      if (req.body[f] !== undefined) room[f] = req.body[f];
+    });
+
+    await room.save();
+    res.json(room);
+  } catch (error) {
+    console.error("Update Room Error:", error);
+    res.status(500).json({ error: "Failed to update room." });
+  }
+});
+
+// DELETE room
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const room = await Room.findOne({
+      $or: [{ id }, { _id: id.match(/^[0-9a-fA-F]{24}$/) ? id : null }],
+    });
+
+    if (!room) {
+      return res.status(404).json({ error: "Room not found." });
+    }
+
+    await Room.deleteOne({ _id: room._id });
+    res.json({ message: `Room ${room.number} removed from ${room.hostelName}.` });
+  } catch (error) {
+    console.error("Delete Room Error:", error);
+    res.status(500).json({ error: "Failed to delete room." });
+  }
+});
+
 export default router;
